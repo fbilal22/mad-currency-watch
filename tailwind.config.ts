@@ -14,6 +14,15 @@ export default {
     },
     extend: {
       colors: {
+        financial: {
+          primary: "hsl(var(--financial-primary))",
+          "primary-dark": "hsl(var(--financial-primary-dark))",
+          success: "hsl(var(--financial-success))",
+          "success-light": "hsl(var(--financial-success-light))",
+          danger: "hsl(var(--financial-danger))",
+          warning: "hsl(var(--financial-warning))",
+          neutral: "hsl(var(--financial-neutral))",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -57,6 +66,16 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+      },
+      backgroundImage: {
+        "gradient-financial": "var(--gradient-financial)",
+        "gradient-success": "var(--gradient-success)",
+        "gradient-card": "var(--gradient-card)",
+      },
+      boxShadow: {
+        financial: "var(--shadow-financial)",
+        card: "var(--shadow-card)",
+        hover: "var(--shadow-hover)",
       },
       borderRadius: {
         lg: "var(--radius)",
