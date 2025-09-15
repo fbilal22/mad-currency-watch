@@ -21,7 +21,8 @@ const API_NINJA_BASE_URL = 'https://api.api-ninjas.com/v1/webscraper';
 // URLs des banques à scraper
 const BANK_URLS = {
   bankPopulaire: 'https://bpnet.gbp.ma/Public/FinaServices/ExchangeRate',
-  attijariwafa: 'https://attijarinet.attijariwafa.com/particulier/public/coursdevise'
+  attijariwafa: 'https://attijarinet.attijariwafa.com/particulier/public/coursdevise',
+  bankAlMaghreb: 'https://www.bkam.ma/Marches/Taux-d-interet/Reference-pour-la-revision-des-taux-variables'
 };
 
 export class ExchangeRateService {
@@ -108,13 +109,55 @@ export class ExchangeRateService {
     return rates;
   }
 
-  // Méthode principale pour obtenir les taux de change
+  // Parse les taux de Bank Al-Maghreb depuis le HTML
+  static parseBankAlMaghrebRates(html: string): ExchangeRate[] {
+    const rates: ExchangeRate[] = [];
+
+    const normalize = (s: string) => parseFloat(s.replace(/\s/g, '').replace(',', '.'));
+    const extract = (currency: string): { buy: number; sell: number } | null => {
+      // Rechercher les patterns pour USD et EUR dans le HTML de Bank Al-Maghreb
+      const currencyRegex = new RegExp(`${currency}[\\s\\S]{0,200}?(\\d+[.,]\\d+)[\\s\\S]{0,100}?(\\d+[.,]\\d+)`, 'i');
+      const match = html.match(currencyRegex);
+      
+      if (match && match[1] && match[2]) {
+        const rate1 = normalize(match[1]);
+        const rate2 = normalize(match[2]);
+        if (!isNaN(rate1) && !isNaN(rate2)) {
+          // Généralement, le premier est le taux d'achat, le second de vente
+          return { buy: rate1, sell: rate2 };
+        }
+      }
+      
+      // Fallback: chercher dans les tableaux
+      const tableRegex = new RegExp(`<td[^>]*>[^<]*${currency}[^<]*<\\/td>[\\s\\S]{0,300}?<td[^>]*>([^<]+)<\\/td>[\\s\\S]{0,100}?<td[^>]*>([^<]+)<\\/td>`, 'i');
+      const tableMatch = html.match(tableRegex);
+      
+      if (tableMatch && tableMatch[1] && tableMatch[2]) {
+        const rate1 = normalize(tableMatch[1]);
+        const rate2 = normalize(tableMatch[2]);
+        if (!isNaN(rate1) && !isNaN(rate2)) {
+          return { buy: rate1, sell: rate2 };
+        }
+      }
+      
+      return null;
+    };
+
+    const eur = extract('EUR');
+    if (eur) rates.push({ currency: 'EUR', buyRate: eur.buy, sellRate: eur.sell });
+    const usd = extract('USD');
+    if (usd) rates.push({ currency: 'USD', buyRate: usd.buy, sellRate: usd.sell });
+
+    return rates;
+  }
+
   static async getExchangeRates(): Promise<BankRates[]> {
     try {
-      // Scraper les deux sites en parallèle
-      const [populaireHtml, attijariwafaHtml] = await Promise.all([
+      // Scraper les trois sites en parallèle
+      const [populaireHtml, attijariwafaHtml, bankAlMaghrebHtml] = await Promise.all([
         this.scrapePage(BANK_URLS.bankPopulaire),
-        this.scrapePage(BANK_URLS.attijariwafa)
+        this.scrapePage(BANK_URLS.attijariwafa),
+        this.scrapePage(BANK_URLS.bankAlMaghreb)
       ]);
 
       const bankRates: BankRates[] = [];
@@ -139,6 +182,18 @@ export class ExchangeRateService {
           bankRates.push({
             bankName: "Attijariwafa Bank",
             rates: attijariwafaRates,
+            lastUpdated: currentTime
+          });
+        }
+      }
+
+      // Traiter les données de Bank Al-Maghreb
+      if (bankAlMaghrebHtml) {
+        const bankAlMaghrebRates = this.parseBankAlMaghrebRates(bankAlMaghrebHtml);
+        if (bankAlMaghrebRates.length > 0) {
+          bankRates.push({
+            bankName: "Bank Al-Maghreb (Référence)",
+            rates: bankAlMaghrebRates,
             lastUpdated: currentTime
           });
         }
