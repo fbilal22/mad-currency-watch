@@ -26,7 +26,7 @@ export const ExchangeRateDashboard = () => {
     } catch (error) {
       toast({
         title: "Erreur",
-        description: "Impossible de récupérer les taux de change",
+        description: error instanceof Error ? error.message : "Impossible de récupérer les taux de change",
         variant: "destructive",
       });
     } finally {

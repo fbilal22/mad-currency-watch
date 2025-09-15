@@ -33,16 +33,22 @@ export class ExchangeRateService {
         method: 'GET',
         headers: {
           'X-Api-Key': API_NINJA_KEY,
-          'Content-Type': 'application/json'
         }
       });
 
       if (!response.ok) {
-        throw new Error(`API Ninja error: ${response.status}`);
+        const text = await response.text().catch(() => '');
+        throw new Error(`API Ninja error: ${response.status} ${text?.slice(0,200)}`);
       }
 
-      const data = await response.json();
-      return data.content || '';
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data: any = await response.json();
+        const payload = typeof data === 'string' ? data : (data.content || data.html || data.body || data.text || '');
+        return typeof payload === 'string' && payload ? payload : JSON.stringify(data);
+      } else {
+        return await response.text();
+      }
     } catch (error) {
       console.error('Erreur lors du scraping:', error);
       return '';
@@ -52,27 +58,29 @@ export class ExchangeRateService {
   // Parse les taux de Bank Populaire depuis le HTML
   static parsePopulaireRates(html: string): ExchangeRate[] {
     const rates: ExchangeRate[] = [];
-    
-    // Extraction basique - à adapter selon la structure HTML réelle
-    if (html.includes('USD') || html.includes('Dollar')) {
-      rates.push({
-        currency: 'USD',
-        buyRate: 9.85 + Math.random() * 0.1,
-        sellRate: 10.12 + Math.random() * 0.1,
-        change: (Math.random() - 0.5) * 0.05,
-        changePercent: (Math.random() - 0.5) * 0.5
-      });
-    }
-    
-    if (html.includes('EUR') || html.includes('Euro')) {
-      rates.push({
-        currency: 'EUR',
-        buyRate: 10.68 + Math.random() * 0.1,
-        sellRate: 10.95 + Math.random() * 0.1,
-        change: (Math.random() - 0.5) * 0.05,
-        changePercent: (Math.random() - 0.5) * 0.5
-      });
-    }
+
+    const normalize = (s: string) => parseFloat(s.replace(/\s/g, '').replace(',', '.'));
+    const extract = (label: string): { buy: number; sell: number } | null => {
+      const idx = html.indexOf(label);
+      if (idx === -1) return null;
+      const segment = html.slice(idx, idx + 800);
+      const nums = segment.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2,5})/g) || [];
+      // Structure observée: [buy, change, high, low, sell, change, high, low]
+      if (nums.length >= 6) {
+        const buy = normalize(nums[0]);
+        const sell = normalize(nums[4]);
+        if (!isNaN(buy) && !isNaN(sell)) return { buy, sell };
+      }
+      // Fallback: prendre les deux premiers nombres plausibles
+      const numeric = nums.map(normalize).filter((n) => !isNaN(n) && n > 0);
+      if (numeric.length >= 2) return { buy: numeric[0], sell: numeric[1] };
+      return null;
+    };
+
+    const eur = extract('EUR');
+    if (eur) rates.push({ currency: 'EUR', buyRate: eur.buy, sellRate: eur.sell });
+    const usd = extract('USD');
+    if (usd) rates.push({ currency: 'USD', buyRate: usd.buy, sellRate: usd.sell });
 
     return rates;
   }
@@ -80,27 +88,22 @@ export class ExchangeRateService {
   // Parse les taux d'Attijariwafa depuis le HTML
   static parseAttijariwafaRates(html: string): ExchangeRate[] {
     const rates: ExchangeRate[] = [];
-    
-    // Extraction basique - à adapter selon la structure HTML réelle
-    if (html.includes('USD') || html.includes('Dollar')) {
-      rates.push({
-        currency: 'USD',
-        buyRate: 9.86 + Math.random() * 0.1,
-        sellRate: 10.11 + Math.random() * 0.1,
-        change: (Math.random() - 0.5) * 0.05,
-        changePercent: (Math.random() - 0.5) * 0.5
-      });
-    }
-    
-    if (html.includes('EUR') || html.includes('Euro')) {
-      rates.push({
-        currency: 'EUR',
-        buyRate: 10.69 + Math.random() * 0.1,
-        sellRate: 10.94 + Math.random() * 0.1,
-        change: (Math.random() - 0.5) * 0.05,
-        changePercent: (Math.random() - 0.5) * 0.5
-      });
-    }
+
+    const normalize = (s: string) => parseFloat(s.replace(/\s/g, '').replace(',', '.'));
+    const extract = (label: RegExp): { buy: number; sell: number } | null => {
+      const idx = html.search(label);
+      if (idx === -1) return null;
+      const segment = html.slice(idx, idx + 600);
+      const nums = segment.match(/\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2,5})/g) || [];
+      const values = nums.map(normalize).filter((n) => !isNaN(n));
+      if (values.length >= 2) return { buy: values[0], sell: values[1] };
+      return null;
+    };
+
+    const eur = extract(/EURO/i);
+    if (eur) rates.push({ currency: 'EUR', buyRate: eur.buy, sellRate: eur.sell });
+    const usd = extract(/DOLLARS?\s*USD/i);
+    if (usd) rates.push({ currency: 'USD', buyRate: usd.buy, sellRate: usd.sell });
 
     return rates;
   }
@@ -141,7 +144,6 @@ export class ExchangeRateService {
         }
       }
 
-      // Si aucune donnée n'a pu être récupérée, retourner des données de fallback
       if (bankRates.length === 0) {
         throw new Error('Aucune donnée de taux de change récupérée');
       }
@@ -149,18 +151,7 @@ export class ExchangeRateService {
       return bankRates;
     } catch (error) {
       console.error('Erreur lors de la récupération des taux:', error);
-      
-      // Données de fallback en cas d'erreur
-      return [
-        {
-          bankName: "Bank Populaire (Erreur - Données de fallback)",
-          rates: [
-            { currency: "USD", buyRate: 9.85, sellRate: 10.12, change: 0.01, changePercent: 0.1 },
-            { currency: "EUR", buyRate: 10.68, sellRate: 10.95, change: -0.008, changePercent: -0.07 }
-          ],
-          lastUpdated: new Date().toLocaleString('fr-FR')
-        }
-      ];
+      throw error instanceof Error ? error : new Error('Échec de récupération des taux');
     }
   }
 
