@@ -22,7 +22,7 @@ const API_NINJA_BASE_URL = 'https://api.api-ninjas.com/v1/webscraper';
 const BANK_URLS = {
   bankPopulaire: 'https://bpnet.gbp.ma/Public/FinaServices/ExchangeRate',
   attijariwafa: 'https://attijarinet.attijariwafa.com/particulier/public/coursdevise',
-  bankAlMaghreb: 'https://www.bkam.ma/Marches/Taux-d-interet/Reference-pour-la-revision-des-taux-variables'
+  bankAlMaghreb: 'https://www.bkam.ma/Marches/Principaux-indicateurs/Marche-des-changes/Cours-de-change/Cours-de-reference'
 };
 
 export class ExchangeRateService {
@@ -114,39 +114,34 @@ export class ExchangeRateService {
     const rates: ExchangeRate[] = [];
 
     const normalize = (s: string) => parseFloat(s.replace(/\s/g, '').replace(',', '.'));
-    const extract = (currency: string): { buy: number; sell: number } | null => {
-      // Rechercher les patterns pour USD et EUR dans le HTML de Bank Al-Maghreb
-      const currencyRegex = new RegExp(`${currency}[\\s\\S]{0,200}?(\\d+[.,]\\d+)[\\s\\S]{0,100}?(\\d+[.,]\\d+)`, 'i');
-      const match = html.match(currencyRegex);
-      
-      if (match && match[1] && match[2]) {
-        const rate1 = normalize(match[1]);
-        const rate2 = normalize(match[2]);
-        if (!isNaN(rate1) && !isNaN(rate2)) {
-          // Généralement, le premier est le taux d'achat, le second de vente
-          return { buy: rate1, sell: rate2 };
-        }
+    
+    // Rechercher les lignes de tableau pour EURO et DOLLAR
+    const euroMatch = html.match(/1\s*EURO[^0-9]*([0-9]+[,.]?[0-9]*)/i);
+    const dollarMatch = html.match(/1\s*DOLLAR\s*U\.?S\.?A\.?[^0-9]*([0-9]+[,.]?[0-9]*)/i);
+    
+    if (euroMatch && euroMatch[1]) {
+      const eurRate = normalize(euroMatch[1]);
+      if (!isNaN(eurRate) && eurRate > 0) {
+        // Pour Bank Al-Maghreb, c'est le cours de référence (on utilise le même pour achat et vente)
+        rates.push({ 
+          currency: 'EUR', 
+          buyRate: eurRate, 
+          sellRate: eurRate 
+        });
       }
-      
-      // Fallback: chercher dans les tableaux
-      const tableRegex = new RegExp(`<td[^>]*>[^<]*${currency}[^<]*<\\/td>[\\s\\S]{0,300}?<td[^>]*>([^<]+)<\\/td>[\\s\\S]{0,100}?<td[^>]*>([^<]+)<\\/td>`, 'i');
-      const tableMatch = html.match(tableRegex);
-      
-      if (tableMatch && tableMatch[1] && tableMatch[2]) {
-        const rate1 = normalize(tableMatch[1]);
-        const rate2 = normalize(tableMatch[2]);
-        if (!isNaN(rate1) && !isNaN(rate2)) {
-          return { buy: rate1, sell: rate2 };
-        }
+    }
+    
+    if (dollarMatch && dollarMatch[1]) {
+      const usdRate = normalize(dollarMatch[1]);
+      if (!isNaN(usdRate) && usdRate > 0) {
+        // Pour Bank Al-Maghreb, c'est le cours de référence (on utilise le même pour achat et vente)
+        rates.push({ 
+          currency: 'USD', 
+          buyRate: usdRate, 
+          sellRate: usdRate 
+        });
       }
-      
-      return null;
-    };
-
-    const eur = extract('EUR');
-    if (eur) rates.push({ currency: 'EUR', buyRate: eur.buy, sellRate: eur.sell });
-    const usd = extract('USD');
-    if (usd) rates.push({ currency: 'USD', buyRate: usd.buy, sellRate: usd.sell });
+    }
 
     return rates;
   }
